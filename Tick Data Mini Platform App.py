@@ -1,334 +1,319 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "c801bb56",
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "import streamlit as st\n",
-    "import pandas as pd\n",
-    "import numpy as np\n",
-    "import matplotlib.pyplot as plt\n",
-    "from datetime import datetime, timedelta\n",
-    "\n",
-    "st.set_page_config(page_title=\"Tick Data Mini-Platform\", layout=\"wide\")\n",
-    "\n",
-    "# -------------------------------\n",
-    "# TITLE\n",
-    "# -------------------------------\n",
-    "st.title(\"📈 Tick Data Mini-Platform\")\n",
-    "st.caption(\"Synthetic Market Data | Tick Store | Spread, VWAP & Volume Analytics\")\n",
-    "st.markdown(\"**Created by Steven Amet**\")\n",
-    "\n",
-    "st.markdown(\n",
-    "    \"\"\"\n",
-    "This app is a trading-style mini-platform that simulates tick data, stores it in a simple\n",
-    "intraday/historical structure, and runs basic market microstructure analytics.\n",
-    "\n",
-    "- Generate or upload tick-style market data\n",
-    "- Store and query intraday ticks\n",
-    "- Analyse spread, returns, VWAP and volume bursts\n",
-    "- Build toward TCA and order-book analytics later\n",
-    "\"\"\"\n",
-    ")\n",
-    "\n",
-    "# -------------------------------\n",
-    "# SIDEBAR SETTINGS\n",
-    "# -------------------------------\n",
-    "st.sidebar.header(\"⚙️ Data Settings\")\n",
-    "\n",
-    "symbols = st.sidebar.multiselect(\n",
-    "    \"Symbols\",\n",
-    "    [\"EURUSD\", \"GBPUSD\", \"USDJPY\", \"AAPL\", \"MSFT\", \"ES_F\"],\n",
-    "    default=[\"EURUSD\", \"GBPUSD\"]\n",
-    ")\n",
-    "\n",
-    "num_ticks = st.sidebar.slider(\"Ticks per symbol\", 500, 10000, 2000, step=500)\n",
-    "seed = st.sidebar.number_input(\"Random seed\", min_value=0, max_value=99999, value=42)\n",
-    "base_date = st.sidebar.date_input(\"Trading date\", value=datetime.today().date())\n",
-    "\n",
-    "# -------------------------------\n",
-    "# DATA GENERATION\n",
-    "# -------------------------------\n",
-    "@st.cache_data\n",
-    "def generate_synthetic_ticks(symbols, num_ticks, seed, base_date):\n",
-    "    rng = np.random.default_rng(seed)\n",
-    "    all_frames = []\n",
-    "\n",
-    "    base_prices = {\n",
-    "        \"EURUSD\": 1.08,\n",
-    "        \"GBPUSD\": 1.27,\n",
-    "        \"USDJPY\": 151.5,\n",
-    "        \"AAPL\": 210.0,\n",
-    "        \"MSFT\": 425.0,\n",
-    "        \"ES_F\": 5250.0,\n",
-    "    }\n",
-    "\n",
-    "    start_dt = datetime.combine(base_date, datetime.min.time()) + timedelta(hours=8)\n",
-    "\n",
-    "    for sym in symbols:\n",
-    "        base = base_prices.get(sym, 100.0)\n",
-    "        timestamps = [start_dt + timedelta(milliseconds=int(i * 250 + rng.integers(0, 80))) for i in range(num_ticks)]\n",
-    "\n",
-    "        mid_moves = rng.normal(0, base * 0.00015, size=num_ticks)\n",
-    "        mids = base + np.cumsum(mid_moves)\n",
-    "        spreads = np.abs(rng.normal(base * 0.00008, base * 0.00003, size=num_ticks))\n",
-    "        bids = mids - spreads / 2\n",
-    "        asks = mids + spreads / 2\n",
-    "        bid_sizes = rng.integers(1, 25, size=num_ticks) * 100\n",
-    "        ask_sizes = rng.integers(1, 25, size=num_ticks) * 100\n",
-    "        last_prices = mids + rng.normal(0, spreads / 4, size=num_ticks)\n",
-    "        trade_sizes = rng.integers(1, 40, size=num_ticks) * 100\n",
-    "\n",
-    "        df = pd.DataFrame({\n",
-    "            \"timestamp\": timestamps,\n",
-    "            \"symbol\": sym,\n",
-    "            \"bid\": bids,\n",
-    "            \"ask\": asks,\n",
-    "            \"bid_size\": bid_sizes,\n",
-    "            \"ask_size\": ask_sizes,\n",
-    "            \"trade_price\": last_prices,\n",
-    "            \"trade_size\": trade_sizes,\n",
-    "        })\n",
-    "        df[\"mid\"] = (df[\"bid\"] + df[\"ask\"]) / 2\n",
-    "        df[\"spread\"] = df[\"ask\"] - df[\"bid\"]\n",
-    "        all_frames.append(df)\n",
-    "\n",
-    "    ticks = pd.concat(all_frames, ignore_index=True).sort_values([\"symbol\", \"timestamp\"])\n",
-    "    return ticks\n",
-    "\n",
-    "\n",
-    "# -------------------------------\n",
-    "# SIMPLE STORAGE LAYERS\n",
-    "# -------------------------------\n",
-    "@st.cache_data\n",
-    "def build_storage_layers(ticks):\n",
-    "    ticks = ticks.copy()\n",
-    "    ticks[\"date\"] = pd.to_datetime(ticks[\"timestamp\"]).dt.date\n",
-    "\n",
-    "    intraday = ticks.copy()\n",
-    "    historical = (\n",
-    "        ticks.groupby([\"date\", \"symbol\"], as_index=False)\n",
-    "        .agg(\n",
-    "            open_price=(\"trade_price\", \"first\"),\n",
-    "            high_price=(\"trade_price\", \"max\"),\n",
-    "            low_price=(\"trade_price\", \"min\"),\n",
-    "            close_price=(\"trade_price\", \"last\"),\n",
-    "            total_volume=(\"trade_size\", \"sum\"),\n",
-    "            avg_spread=(\"spread\", \"mean\"),\n",
-    "            tick_count=(\"trade_price\", \"count\"),\n",
-    "        )\n",
-    "    )\n",
-    "    return intraday, historical\n",
-    "\n",
-    "\n",
-    "def calc_vwap(df):\n",
-    "    vol = df[\"trade_size\"].sum()\n",
-    "    if vol == 0:\n",
-    "        return np.nan\n",
-    "    return (df[\"trade_price\"] * df[\"trade_size\"]).sum() / vol\n",
-    "\n",
-    "\n",
-    "def calc_volume_bursts(df, window=25, threshold=2.0):\n",
-    "    rolling = df[\"trade_size\"].rolling(window=window, min_periods=5).mean()\n",
-    "    baseline = df[\"trade_size\"].expanding(min_periods=5).mean()\n",
-    "    signal = rolling / baseline\n",
-    "    bursts = signal > threshold\n",
-    "    out = df[[\"timestamp\", \"trade_size\"]].copy()\n",
-    "    out[\"rolling_ratio\"] = signal\n",
-    "    out[\"burst\"] = bursts\n",
-    "    return out\n",
-    "\n",
-    "\n",
-    "# -------------------------------\n",
-    "# LOAD DATA\n",
-    "# -------------------------------\n",
-    "ticks = generate_synthetic_ticks(symbols, num_ticks, seed, base_date)\n",
-    "intraday, historical = build_storage_layers(ticks)\n",
-    "\n",
-    "st.markdown(\"### 🗃️ Data Overview\")\n",
-    "col1, col2, col3 = st.columns(3)\n",
-    "col1.metric(\"Total Ticks\", f\"{len(intraday):,}\")\n",
-    "col2.metric(\"Symbols\", f\"{intraday['symbol'].nunique()}\")\n",
-    "col3.metric(\"Trading Date\", str(base_date))\n",
-    "\n",
-    "st.markdown(\n",
-    "    \"\"\"\n",
-    "**What this section does:**\n",
-    "Creates a simplified tick-data store with:\n",
-    "- **Intraday layer** for full tick-by-tick data\n",
-    "- **Historical layer** for end-of-day summaries\n",
-    "\n",
-    "This mirrors the type of separation often used in kdb+/q environments.\n",
-    "\"\"\"\n",
-    ")\n",
-    "\n",
-    "# -------------------------------\n",
-    "# TABLE VIEWS\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### 🔎 Intraday Tick Store\")\n",
-    "st.dataframe(intraday.head(50), use_container_width=True)\n",
-    "\n",
-    "st.markdown(\"### 📚 Historical Summary Store\")\n",
-    "st.dataframe(historical, use_container_width=True)\n",
-    "\n",
-    "# -------------------------------\n",
-    "# SYMBOL SELECTION\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### 🎯 Symbol Analytics\")\n",
-    "selected_symbol = st.selectbox(\"Choose symbol\", sorted(intraday[\"symbol\"].unique()))\n",
-    "selected = intraday[intraday[\"symbol\"] == selected_symbol].copy().sort_values(\"timestamp\")\n",
-    "selected[\"return_bps\"] = selected[\"trade_price\"].pct_change() * 10000\n",
-    "selected[\"cum_volume\"] = selected[\"trade_size\"].cumsum()\n",
-    "selected[\"vwap_running\"] = (selected[\"trade_price\"] * selected[\"trade_size\"]).cumsum() / selected[\"trade_size\"].cumsum()\n",
-    "\n",
-    "vwap_value = calc_vwap(selected)\n",
-    "avg_spread = selected[\"spread\"].mean()\n",
-    "realized_vol_bps = selected[\"return_bps\"].std()\n",
-    "\n",
-    "m1, m2, m3 = st.columns(3)\n",
-    "m1.metric(\"VWAP\", f\"{vwap_value:,.4f}\")\n",
-    "m2.metric(\"Average Spread\", f\"{avg_spread:,.5f}\")\n",
-    "m3.metric(\"Realized Vol (bps)\", f\"{realized_vol_bps:,.2f}\")\n",
-    "\n",
-    "# -------------------------------\n",
-    "# PRICE CHART\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### 📉 Trade Price\")\n",
-    "fig1, ax1 = plt.subplots(figsize=(10, 4))\n",
-    "ax1.plot(selected[\"timestamp\"], selected[\"trade_price\"])\n",
-    "ax1.set_xlabel(\"Time\")\n",
-    "ax1.set_ylabel(\"Trade Price\")\n",
-    "ax1.set_title(f\"{selected_symbol} Trade Price\")\n",
-    "st.pyplot(fig1)\n",
-    "\n",
-    "# -------------------------------\n",
-    "# SPREAD CHART\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### ↔️ Bid-Ask Spread\")\n",
-    "fig2, ax2 = plt.subplots(figsize=(10, 4))\n",
-    "ax2.plot(selected[\"timestamp\"], selected[\"spread\"])\n",
-    "ax2.set_xlabel(\"Time\")\n",
-    "ax2.set_ylabel(\"Spread\")\n",
-    "ax2.set_title(f\"{selected_symbol} Spread\")\n",
-    "st.pyplot(fig2)\n",
-    "\n",
-    "# -------------------------------\n",
-    "# VWAP VS PRICE\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### 📊 Price vs Running VWAP\")\n",
-    "fig3, ax3 = plt.subplots(figsize=(10, 4))\n",
-    "ax3.plot(selected[\"timestamp\"], selected[\"trade_price\"], label=\"Trade Price\")\n",
-    "ax3.plot(selected[\"timestamp\"], selected[\"vwap_running\"], label=\"Running VWAP\")\n",
-    "ax3.set_xlabel(\"Time\")\n",
-    "ax3.set_ylabel(\"Price\")\n",
-    "ax3.set_title(f\"{selected_symbol} Price vs VWAP\")\n",
-    "ax3.legend()\n",
-    "st.pyplot(fig3)\n",
-    "\n",
-    "# -------------------------------\n",
-    "# VOLUME BURSTS\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### 🚨 Volume Burst Detection\")\n",
-    "burst_window = st.slider(\"Burst rolling window\", 10, 100, 25)\n",
-    "burst_threshold = st.slider(\"Burst threshold\", 1.1, 5.0, 2.0, step=0.1)\n",
-    "\n",
-    "bursts = calc_volume_bursts(selected, window=burst_window, threshold=burst_threshold)\n",
-    "burst_events = bursts[bursts[\"burst\"]].copy()\n",
-    "\n",
-    "b1, b2 = st.columns(2)\n",
-    "b1.metric(\"Burst Events\", f\"{len(burst_events)}\")\n",
-    "b2.metric(\"Max Burst Ratio\", f\"{bursts['rolling_ratio'].max():.2f}\")\n",
-    "\n",
-    "fig4, ax4 = plt.subplots(figsize=(10, 4))\n",
-    "ax4.plot(bursts[\"timestamp\"], bursts[\"rolling_ratio\"])\n",
-    "ax4.set_xlabel(\"Time\")\n",
-    "ax4.set_ylabel(\"Rolling / Baseline Volume\")\n",
-    "ax4.set_title(f\"{selected_symbol} Volume Burst Signal\")\n",
-    "st.pyplot(fig4)\n",
-    "\n",
-    "if not burst_events.empty:\n",
-    "    st.dataframe(burst_events.head(20), use_container_width=True)\n",
-    "else:\n",
-    "    st.info(\"No burst events detected with current settings.\")\n",
-    "\n",
-    "# -------------------------------\n",
-    "# QUERY SECTION\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### 🧮 Query Console (Predefined)\")\n",
-    "query_type = st.selectbox(\n",
-    "    \"Choose analysis\",\n",
-    "    [\n",
-    "        \"Last 10 ticks\",\n",
-    "        \"Largest trades\",\n",
-    "        \"Widest spreads\",\n",
-    "        \"Summary stats\",\n",
-    "    ]\n",
-    ")\n",
-    "\n",
-    "if query_type == \"Last 10 ticks\":\n",
-    "    result = selected.tail(10)\n",
-    "elif query_type == \"Largest trades\":\n",
-    "    result = selected.nlargest(10, \"trade_size\")\n",
-    "elif query_type == \"Widest spreads\":\n",
-    "    result = selected.nlargest(10, \"spread\")\n",
-    "else:\n",
-    "    result = pd.DataFrame({\n",
-    "        \"metric\": [\"rows\", \"vwap\", \"avg_spread\", \"total_volume\", \"max_trade\"],\n",
-    "        \"value\": [\n",
-    "            len(selected),\n",
-    "            calc_vwap(selected),\n",
-    "            selected[\"spread\"].mean(),\n",
-    "            selected[\"trade_size\"].sum(),\n",
-    "            selected[\"trade_size\"].max(),\n",
-    "        ]\n",
-    "    })\n",
-    "\n",
-    "st.dataframe(result, use_container_width=True)\n",
-    "\n",
-    "# -------------------------------\n",
-    "# EXECUTIVE SUMMARY\n",
-    "# -------------------------------\n",
-    "st.markdown(\"### 🧠 Executive Summary\")\n",
-    "st.write(\n",
-    "    f\"\"\"\n",
-    "This mini-platform simulates a basic trading-data environment for **{selected_symbol}**.\n",
-    "\n",
-    "- Tick data is generated and stored in an **intraday layer**\n",
-    "- Daily aggregates are stored in a **historical layer**\n",
-    "- Core analytics include **spread analysis**, **VWAP tracking**, **returns**, and **volume burst detection**\n",
-    "\n",
-    "This is a solid first version for GitHub and interviews, and can later be extended into:\n",
-    "- transaction cost analysis,\n",
-    "- order-book reconstruction,\n",
-    "- live feed ingestion,\n",
-    "- or a proper kdb+/q backend.\n",
-    "\"\"\"\n",
-    ")\n"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.10.9"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+# -------------------------------
+# run: streamlit run app.py
+# -------------------------------
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+
+st.set_page_config(page_title="Tick Data Mini-Platform", layout="wide")
+
+# -------------------------------
+# TITLE
+# -------------------------------
+st.title("📈 Tick Data Mini-Platform")
+st.caption("Synthetic Market Data | Tick Store | Spread, VWAP & Volume Analytics")
+st.markdown("**Created by Steven Amet**")
+
+st.markdown(
+    """
+This app is a trading-style mini-platform that simulates tick data, stores it in a simple
+intraday/historical structure, and runs basic market microstructure analytics.
+
+- Generate tick-style market data
+- Store and query intraday ticks
+- Analyse spread, VWAP, returns and volume bursts
+- Build toward TCA and order-book analytics later
+"""
+)
+
+# -------------------------------
+# SIDEBAR SETTINGS
+# -------------------------------
+st.sidebar.header("⚙️ Data Settings")
+
+symbols = st.sidebar.multiselect(
+    "Symbols",
+    ["EURUSD", "GBPUSD", "USDJPY", "AAPL", "MSFT", "ES_F"],
+    default=["EURUSD", "GBPUSD"]
+)
+
+num_ticks = st.sidebar.slider("Ticks per symbol", 500, 10000, 2000, step=500)
+seed = st.sidebar.number_input("Random seed", min_value=0, max_value=99999, value=42)
+base_date = st.sidebar.date_input("Trading date", value=datetime.today().date())
+
+
+# -------------------------------
+# DATA GENERATION
+# -------------------------------
+@st.cache_data
+def generate_synthetic_ticks(symbols, num_ticks, seed, base_date):
+    rng = np.random.default_rng(seed)
+    all_frames = []
+
+    base_prices = {
+        "EURUSD": 1.08,
+        "GBPUSD": 1.27,
+        "USDJPY": 151.5,
+        "AAPL": 210.0,
+        "MSFT": 425.0,
+        "ES_F": 5250.0,
+    }
+
+    start_dt = datetime.combine(base_date, datetime.min.time()) + timedelta(hours=8)
+
+    for sym in symbols:
+        base = base_prices.get(sym, 100.0)
+        timestamps = [
+            start_dt + timedelta(milliseconds=int(i * 250 + rng.integers(0, 80)))
+            for i in range(num_ticks)
+        ]
+
+        mid_moves = rng.normal(0, base * 0.00015, size=num_ticks)
+        mids = base + np.cumsum(mid_moves)
+        spreads = np.abs(rng.normal(base * 0.00008, base * 0.00003, size=num_ticks))
+        bids = mids - spreads / 2
+        asks = mids + spreads / 2
+        bid_sizes = rng.integers(1, 25, size=num_ticks) * 100
+        ask_sizes = rng.integers(1, 25, size=num_ticks) * 100
+        last_prices = mids + rng.normal(0, spreads / 4, size=num_ticks)
+        trade_sizes = rng.integers(1, 40, size=num_ticks) * 100
+
+        df = pd.DataFrame(
+            {
+                "timestamp": timestamps,
+                "symbol": sym,
+                "bid": bids,
+                "ask": asks,
+                "bid_size": bid_sizes,
+                "ask_size": ask_sizes,
+                "trade_price": last_prices,
+                "trade_size": trade_sizes,
+            }
+        )
+        df["mid"] = (df["bid"] + df["ask"]) / 2
+        df["spread"] = df["ask"] - df["bid"]
+        all_frames.append(df)
+
+    ticks = pd.concat(all_frames, ignore_index=True).sort_values(["symbol", "timestamp"])
+    return ticks
+
+
+# -------------------------------
+# SIMPLE STORAGE LAYERS
+# -------------------------------
+@st.cache_data
+def build_storage_layers(ticks):
+    ticks = ticks.copy()
+    ticks["date"] = pd.to_datetime(ticks["timestamp"]).dt.date
+
+    intraday = ticks.copy()
+    historical = (
+        ticks.groupby(["date", "symbol"], as_index=False)
+        .agg(
+            open_price=("trade_price", "first"),
+            high_price=("trade_price", "max"),
+            low_price=("trade_price", "min"),
+            close_price=("trade_price", "last"),
+            total_volume=("trade_size", "sum"),
+            avg_spread=("spread", "mean"),
+            tick_count=("trade_price", "count"),
+        )
+    )
+    return intraday, historical
+
+
+def calc_vwap(df):
+    vol = df["trade_size"].sum()
+    if vol == 0:
+        return np.nan
+    return (df["trade_price"] * df["trade_size"]).sum() / vol
+
+
+def calc_volume_bursts(df, window=25, threshold=2.0):
+    rolling = df["trade_size"].rolling(window=window, min_periods=5).mean()
+    baseline = df["trade_size"].expanding(min_periods=5).mean()
+    signal = rolling / baseline
+    bursts = signal > threshold
+    out = df[["timestamp", "trade_size"]].copy()
+    out["rolling_ratio"] = signal
+    out["burst"] = bursts
+    return out
+
+
+# -------------------------------
+# LOAD DATA
+# -------------------------------
+if not symbols:
+    st.warning("Please select at least one symbol.")
+    st.stop()
+
+ticks = generate_synthetic_ticks(symbols, num_ticks, seed, base_date)
+intraday, historical = build_storage_layers(ticks)
+
+st.markdown("### 🗃️ Data Overview")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Ticks", f"{len(intraday):,}")
+col2.metric("Symbols", f"{intraday['symbol'].nunique()}")
+col3.metric("Trading Date", str(base_date))
+
+st.markdown(
+    """
+**What this section does:**
+Creates a simplified tick-data store with:
+- **Intraday layer** for full tick-by-tick data
+- **Historical layer** for end-of-day summaries
+
+This mirrors the type of separation often used in kdb+/q environments.
+"""
+)
+
+# -------------------------------
+# TABLE VIEWS
+# -------------------------------
+st.markdown("### 🔎 Intraday Tick Store")
+st.dataframe(intraday.head(50), use_container_width=True)
+
+st.markdown("### 📚 Historical Summary Store")
+st.dataframe(historical, use_container_width=True)
+
+# -------------------------------
+# SYMBOL SELECTION
+# -------------------------------
+st.markdown("### 🎯 Symbol Analytics")
+selected_symbol = st.selectbox("Choose symbol", sorted(intraday["symbol"].unique()))
+selected = intraday[intraday["symbol"] == selected_symbol].copy().sort_values("timestamp")
+selected["return_bps"] = selected["trade_price"].pct_change() * 10000
+selected["cum_volume"] = selected["trade_size"].cumsum()
+selected["vwap_running"] = (
+    (selected["trade_price"] * selected["trade_size"]).cumsum()
+    / selected["trade_size"].cumsum()
+)
+
+vwap_value = calc_vwap(selected)
+avg_spread = selected["spread"].mean()
+realized_vol_bps = selected["return_bps"].std()
+
+m1, m2, m3 = st.columns(3)
+m1.metric("VWAP", f"{vwap_value:,.4f}")
+m2.metric("Average Spread", f"{avg_spread:,.5f}")
+m3.metric("Realized Vol (bps)", f"{realized_vol_bps:,.2f}")
+
+# -------------------------------
+# PRICE CHART
+# -------------------------------
+st.markdown("### 📉 Trade Price")
+fig1, ax1 = plt.subplots(figsize=(10, 4))
+ax1.plot(selected["timestamp"], selected["trade_price"])
+ax1.set_xlabel("Time")
+ax1.set_ylabel("Trade Price")
+ax1.set_title(f"{selected_symbol} Trade Price")
+st.pyplot(fig1)
+
+# -------------------------------
+# SPREAD CHART
+# -------------------------------
+st.markdown("### ↔️ Bid-Ask Spread")
+fig2, ax2 = plt.subplots(figsize=(10, 4))
+ax2.plot(selected["timestamp"], selected["spread"])
+ax2.set_xlabel("Time")
+ax2.set_ylabel("Spread")
+ax2.set_title(f"{selected_symbol} Spread")
+st.pyplot(fig2)
+
+# -------------------------------
+# VWAP VS PRICE
+# -------------------------------
+st.markdown("### 📊 Price vs Running VWAP")
+fig3, ax3 = plt.subplots(figsize=(10, 4))
+ax3.plot(selected["timestamp"], selected["trade_price"], label="Trade Price")
+ax3.plot(selected["timestamp"], selected["vwap_running"], label="Running VWAP")
+ax3.set_xlabel("Time")
+ax3.set_ylabel("Price")
+ax3.set_title(f"{selected_symbol} Price vs VWAP")
+ax3.legend()
+st.pyplot(fig3)
+
+# -------------------------------
+# VOLUME BURSTS
+# -------------------------------
+st.markdown("### 🚨 Volume Burst Detection")
+burst_window = st.slider("Burst rolling window", 10, 100, 25)
+burst_threshold = st.slider("Burst threshold", 1.1, 5.0, 2.0, step=0.1)
+
+bursts = calc_volume_bursts(selected, window=burst_window, threshold=burst_threshold)
+burst_events = bursts[bursts["burst"]].copy()
+
+b1, b2 = st.columns(2)
+b1.metric("Burst Events", f"{len(burst_events)}")
+b2.metric("Max Burst Ratio", f"{bursts['rolling_ratio'].max():.2f}")
+
+fig4, ax4 = plt.subplots(figsize=(10, 4))
+ax4.plot(bursts["timestamp"], bursts["rolling_ratio"])
+ax4.set_xlabel("Time")
+ax4.set_ylabel("Rolling / Baseline Volume")
+ax4.set_title(f"{selected_symbol} Volume Burst Signal")
+st.pyplot(fig4)
+
+if not burst_events.empty:
+    st.dataframe(burst_events.head(20), use_container_width=True)
+else:
+    st.info("No burst events detected with current settings.")
+
+# -------------------------------
+# QUERY SECTION
+# -------------------------------
+st.markdown("### 🧮 Query Console (Predefined)")
+query_type = st.selectbox(
+    "Choose analysis",
+    [
+        "Last 10 ticks",
+        "Largest trades",
+        "Widest spreads",
+        "Summary stats",
+    ],
+)
+
+if query_type == "Last 10 ticks":
+    result = selected.tail(10)
+elif query_type == "Largest trades":
+    result = selected.nlargest(10, "trade_size")
+elif query_type == "Widest spreads":
+    result = selected.nlargest(10, "spread")
+else:
+    result = pd.DataFrame(
+        {
+            "metric": ["rows", "vwap", "avg_spread", "total_volume", "max_trade"],
+            "value": [
+                len(selected),
+                calc_vwap(selected),
+                selected["spread"].mean(),
+                selected["trade_size"].sum(),
+                selected["trade_size"].max(),
+            ],
+        }
+    )
+
+st.dataframe(result, use_container_width=True)
+
+# -------------------------------
+# EXECUTIVE SUMMARY
+# -------------------------------
+st.markdown("### 🧠 Executive Summary")
+st.write(
+    f"""
+This mini-platform simulates a basic trading-data environment for **{selected_symbol}**.
+
+- Tick data is generated and stored in an **intraday layer**
+- Daily aggregates are stored in a **historical layer**
+- Core analytics include **spread analysis**, **VWAP tracking**, **returns**, and **volume burst detection**
+
+This is a solid first version for GitHub and interviews, and can later be extended into:
+- transaction cost analysis,
+- order-book reconstruction,
+- live feed ingestion,
+- or a proper kdb+/q backend.
+"""
+)
