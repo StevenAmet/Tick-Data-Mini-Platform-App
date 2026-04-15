@@ -553,10 +553,11 @@ Key ideas:
 )
 
 t1, t2, t3, t4 = st.columns(4)
-t1.metric("Avg Slippage (bps)", f"{tca_summary
-# -------------------------------
-st.markdown("### 🚨 Volume Burst Detection")
-st.markdown(
+
+t1.metric("Avg Slippage (bps)", f"{tca_summary['avg_slippage_bps']:,.2f}")
+t2.metric("Weighted Slippage (bps)", f"{tca_summary['weighted_slippage_bps']:,.2f}")
+t3.metric("Worst Slippage (bps)", f"{tca_summary['worst_slippage_bps']:,.2f}")
+t4.metric("Total Notional", f"{tca_summary['total_notional']:,.0f}")
     """
 This section looks for **unusually large bursts of trading activity**.
 
