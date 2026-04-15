@@ -706,9 +706,8 @@ st.dataframe(result, use_container_width=True)
 st.markdown("### 🧠 Executive Summary")
 st.markdown(
     """
-This final section explains the purpose of the platform in plain English.
 
-It is intended to show not only the outputs, but also **why they matter in a trading or market-data context**.
+Objective is to show not only the outputs, but also **why they matter in a trading or market-data context**.
     """
 )
 
@@ -727,7 +726,7 @@ This makes the project closer to a real kdb+/q-style use case because it mirrors
 - doing post-trade analytics,
 - and analyzing price, spread, liquidity, and order behavior.
 
-This is a strong version for GitHub and interviews, and can later be extended into:
+This version can later be extended into:
 - order-book reconstruction,
 - live feed ingestion,
 - richer execution benchmarking,
