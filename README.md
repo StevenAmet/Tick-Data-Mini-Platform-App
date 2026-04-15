@@ -2,36 +2,115 @@
 
 A Streamlit-based trading analytics project for simulating, storing, and analysing high-frequency tick data.
 
+Link to site https://tick-data-mini-platform-sa.streamlit.app/
+
+**Created by Steven Amet**
+
 ## Overview
 
-This project is designed as a **mini market-data platform** that mirrors a simplified trading-data workflow:
+This project is designed as a **mini trading-data platform** that mirrors the type of workflow often seen in market-data and trading analytics environments.
 
-- generate or ingest tick-style data
-- store data in **intraday** and **historical** layers
-- run **market microstructure analytics**
-- visualise outputs in an interactive dashboard
+It combines:
 
-It is intended as a first-stage project that can later be extended with:
+- **live market anchors** from external sources
+- **synthetic intraday tick generation**
+- **intraday and historical data layers**
+- **market microstructure analytics**
+- **post-trade execution analysis / TCA**
 
-- transaction cost analysis (TCA)
-- order book reconstruction
-- live market data ingestion
-- a real **kdb+/q backend**
+The app does **not** stream a real exchange feed. Instead, it pulls recent live market prices and uses them as the starting point for a simulated intraday tick path. This keeps the project realistic, lightweight, and suitable for GitHub and interviews.
+
+## Why This Project Matters
+
+A good kdb+/q-style project is valuable when it mirrors real trading use cases. This project is built around those ideas:
+
+- ingesting **real-time and historical market data**
+- building a **tick architecture**
+- doing **post-trade analytics / TCA**
+- analysing **price, spread, liquidity, and order behaviour**
+
+This makes it a practical portfolio project for roles in:
+
+- trading technology
+- market-data engineering
+- execution analytics
+- quantitative support
+- electronic trading infrastructure
 
 ## Features
 
-- Synthetic tick data generation across multiple symbols
-- Intraday tick store for full tick-by-tick data
-- Historical summary store for aggregated daily data
-- Spread analysis
-- VWAP tracking
-- Return series analysis
-- Volume burst detection
-- Predefined query views for exploratory analysis
+### 1. Live Market Anchors
+The app can fetch recent live market levels and use them as the base for the simulated tick series.
+
+Examples:
+- FX rates via live FX sources
+- equities and futures via Yahoo Finance
+
+### 2. Synthetic Tick Generation
+The app generates realistic tick-style data for instruments such as:
+
+- EURUSD
+- GBPUSD
+- USDJPY
+- AAPL
+- MSFT
+- ES futures
+
+Each tick includes quote and trade-style fields such as bid, ask, trade price, trade size, spread, and more.
+
+### 3. Tick Architecture
+The platform separates the data into two layers:
+
+#### Intraday Layer
+Stores full tick-by-tick market data for session-level analysis.
+
+#### Historical Layer
+Stores aggregated daily summaries including:
+
+- open
+- high
+- low
+- close
+- total volume
+- average spread
+- average liquidity score
+- average order imbalance
+- tick count
+
+This mirrors the type of separation often used in kdb+/q environments.
+
+### 4. Market Microstructure Analytics
+The app includes:
+
+- **Trade price analysis**
+- **Bid-ask spread analysis**
+- **VWAP tracking**
+- **Tick-to-tick return analysis**
+- **Volume burst detection**
+- **Liquidity score**
+- **Order imbalance**
+
+These help the user understand market quality, trading conditions, and instrument behaviour.
+
+### 5. Post-Trade Analytics / TCA
+The app also simulates a simple post-trade execution framework.
+
+For each tick, it generates:
+- a synthetic trade side
+- an arrival mid-price
+- an execution price
+- slippage in basis points
+
+This supports basic **Transaction Cost Analysis (TCA)**, including:
+
+- average slippage
+- weighted slippage
+- worst slippage
+- total notional traded
 
 ## Data Model
 
-Each tick record includes:
+Each tick record may include:
 
 - `timestamp`
 - `symbol`
@@ -43,48 +122,75 @@ Each tick record includes:
 - `trade_size`
 - `mid`
 - `spread`
+- `trade_side`
+- `arrival_mid`
+- `execution_price`
+- `liquidity_score`
+- `order_imbalance`
 
-## Architecture
+## Dashboard Sections
 
-The app uses a simplified two-layer structure:
+The app is structured to be intuitive for the user and explain what each section is doing.
 
-### Intraday Layer
-Stores full tick-by-tick data for current-session analysis.
+### App Introduction
+Explains:
+- what a tick is
+- what the app simulates
+- how synthetic and live data are combined
 
-### Historical Layer
-Stores aggregated daily summaries, including:
-
-- open price
-- high price
-- low price
-- close price
-- total volume
-- average spread
+### Data Settings
+Lets the user choose:
+- symbols
 - tick count
+- random seed
+- trading date
+- whether to use live market anchors
 
-This setup is designed to resemble the separation often used in trading and market-data environments.
+### Live Market Anchors
+Shows the latest market reference prices used to initialise the simulation.
 
-## Analytics Included
+### Data Overview
+Displays:
+- total ticks
+- number of symbols
+- trading date
 
-### Spread Analysis
-Tracks bid-ask spread behaviour over time.
+### Intraday Tick Store
+Shows the raw tick-by-tick market data.
 
-### VWAP
-Calculates running and full-period volume-weighted average price.
+### Historical Summary Store
+Shows aggregated daily summaries.
 
-### Returns
-Measures tick-to-tick returns in basis points.
+### Symbol Analytics
+Lets the user drill into one instrument.
 
-### Volume Burst Detection
-Flags unusual spikes in trading activity using a rolling-volume signal.
+### Core Metrics
+Shows:
+- VWAP
+- average spread
+- realized volatility
+- liquidity score
+- order imbalance
+
+### Charts
+Includes:
+- trade price over time
+- bid-ask spread over time
+- trade price vs running VWAP
+- liquidity score
+- order imbalance
+- volume burst signal
+- execution slippage
 
 ### Query Console
-Supports quick inspection of:
-
-- latest ticks
+Provides simple predefined views such as:
+- last 10 ticks
 - largest trades
 - widest spreads
 - summary statistics
+
+### Executive Summary
+Summarises the purpose of the platform and how it relates to trading and kdb+/q-style analytics.
 
 ## Tech Stack
 
@@ -93,6 +199,8 @@ Supports quick inspection of:
 - **Pandas**
 - **NumPy**
 - **Matplotlib**
+- **Requests**
+- **yfinance**
 
 ## Project Structure
 
@@ -101,60 +209,3 @@ Supports quick inspection of:
 ├── app.py
 ├── README.md
 └── requirements.txt
-```
-
-## Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/your-username/tick-data-mini-platform.git
-cd tick-data-mini-platform
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-## Run the App
-
-```bash
-streamlit run app.py
-```
-
-## Example Use Cases
-
-This project is relevant to:
-
-- trading analytics
-- market-data engineering
-- execution analysis
-- market microstructure research
-- interview project portfolios for trading-tech roles
-
-## Roadmap
-
-Planned next steps:
-
-- [ ] Add CSV upload for external tick data
-- [ ] Add transaction cost analysis module
-- [ ] Add order-book or L2 simulation
-- [ ] Add session-based filtering
-- [ ] Add live data ingestion mock
-- [ ] Replace simulated store with kdb+/q-compatible backend design
-
-## Why This Project Matters
-
-Trading firms and market-data teams often work with large time-series datasets containing prices, quotes, sizes, and timestamps. This project demonstrates a practical understanding of how that data can be structured, queried, and analysed in a lightweight but relevant format.
-
-Rather than building a generic dashboard, the aim is to create a **trading-style mini-platform** that can evolve into a more realistic analytics system over time.
-
-## Author
-
-**Steven Amet**
-
----
-
-This project is intended as a practical portfolio piece for trading, data, and quantitative technology roles.
