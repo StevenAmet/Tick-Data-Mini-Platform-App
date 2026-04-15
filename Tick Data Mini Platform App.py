@@ -537,27 +537,48 @@ st.pyplot(fig_imb)
 # -------------------------------
 # POST-TRADE ANALYTICS / TCA
 # -------------------------------
+
 st.markdown("### 🧾 Post-Trade Analytics / TCA")
 st.markdown(
     """
-This section simulates **post-trade execution analysis**.
+This section evaluates simulated execution quality.
 
-For each tick, the app creates a synthetic trade side and execution price, then compares that execution against the **arrival mid-price**.
-This gives a simple form of **transaction cost analysis (TCA)**.
+For each trade, the app compares the execution price with the arrival mid-price.
+That gives a simple form of **transaction cost analysis (TCA)**.
 
-Key ideas:
-- **Slippage** measures how far execution moved away from the reference price
-- **Weighted Slippage** adjusts this by trade notional
-- Higher positive slippage generally means worse execution quality
+- **Avg Slippage (bps)** shows average execution cost in basis points
+- **Weighted Slippage (bps)** weights slippage by trade notional
+- **Worst Slippage (bps)** shows the worst observed execution outcome
+- **Total Notional** shows the total simulated value traded
     """
 )
 
 t1, t2, t3, t4 = st.columns(4)
-
 t1.metric("Avg Slippage (bps)", f"{tca_summary['avg_slippage_bps']:,.2f}")
 t2.metric("Weighted Slippage (bps)", f"{tca_summary['weighted_slippage_bps']:,.2f}")
 t3.metric("Worst Slippage (bps)", f"{tca_summary['worst_slippage_bps']:,.2f}")
 t4.metric("Total Notional", f"{tca_summary['total_notional']:,.0f}")
+
+fig_tca, ax_tca = plt.subplots(figsize=(10, 4))
+ax_tca.plot(selected_tca["timestamp"], selected_tca["slippage_bps"])
+ax_tca.set_xlabel("Time")
+ax_tca.set_ylabel("Slippage (bps)")
+ax_tca.set_title(f"{selected_symbol} Execution Slippage")
+st.pyplot(fig_tca)
+
+st.dataframe(
+    selected_tca[
+        [
+            "timestamp",
+            "trade_side",
+            "arrival_mid",
+            "execution_price",
+            "trade_size",
+            "slippage_bps",
+        ]
+    ].head(20),
+    use_container_width=True,
+)
     """
 This section looks for **unusually large bursts of trading activity**.
 
@@ -567,7 +588,7 @@ The app compares recent trading volume with the broader session average:
 
 A burst may suggest elevated activity, news reaction, execution pressure, or a temporary change in liquidity.
     """
-)
+
 burst_window = st.slider("Burst rolling window", 10, 100, 25)
 burst_threshold = st.slider("Burst threshold", 1.1, 5.0, 2.0, step=0.1)
 
