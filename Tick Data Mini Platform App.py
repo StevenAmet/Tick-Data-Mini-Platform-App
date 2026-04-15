@@ -25,21 +25,23 @@ A **tick** is a single market update. It can represent a quote update, a trade, 
 This app helps the user:
 - generate realistic synthetic tick data for multiple instruments
 - organise it into a simple **intraday** and **historical** structure
-- analyse **price behaviour, spreads, VWAP, returns, and volume spikes**
+- analyse **price behaviour, spreads, VWAP, returns, volume spikes, liquidity, and execution quality**
 - understand how raw market data becomes usable trading insight
 
-This first version uses **synthetic data**, which means the prices are simulated rather than pulled from a live market feed. That makes it useful for learning, prototyping, and demonstrating market-data analytics.
+This version uses **synthetic data**, which means the ticks are simulated rather than pulled from a live exchange feed. However, it can use **live market anchors** so the simulation starts from recent market prices.
         """
     )
+
 st.markdown(
     """
 This app is a trading-style mini-platform that simulates tick data, stores it in a simple
-intraday/historical structure, and runs basic market microstructure analytics.
+intraday/historical structure, and runs basic market microstructure and post-trade analytics.
 
 - Generate tick-style market data
 - Store and query intraday ticks
-- Analyse spread, VWAP, returns and volume bursts
-- Build toward TCA and order-book analytics later
+- Analyse spread, VWAP, returns, liquidity, and volume bursts
+- Add a simple post-trade analytics / TCA layer
+- Build toward order-book analytics and kdb+/q-style architecture later
 """
 )
 
@@ -55,20 +57,20 @@ Use these controls to change the simulated market environment.
 - **Ticks per symbol**: choose how much intraday data to create
 - **Random seed**: keeps the simulation reproducible
 - **Trading date**: sets the date for the synthetic session
+- **Use live market anchors**: starts the simulation from recent market prices
     """
 )
 
 symbols = st.sidebar.multiselect(
     "Symbols",
     ["EURUSD", "GBPUSD", "USDJPY", "AAPL", "MSFT", "ES_F"],
-    default=["EURUSD", "GBPUSD"]
+    default=["EURUSD", "GBPUSD"],
 )
 
 num_ticks = st.sidebar.slider("Ticks per symbol", 500, 10000, 2000, step=500)
 seed = st.sidebar.number_input("Random seed", min_value=0, max_value=99999, value=42)
 base_date = st.sidebar.date_input("Trading date", value=datetime.today().date())
 use_live_anchors = st.sidebar.checkbox("Use live market anchors", value=True)
-
 
 # -------------------------------
 # LIVE PRICE ENGINE
@@ -216,6 +218,7 @@ def generate_synthetic_ticks(symbols, num_ticks, seed, base_date, anchor_prices)
 
         trade_side = rng.choice(["BUY", "SELL"], size=num_ticks)
         exec_slippage = rng.normal(0, spreads / 6, size=num_ticks)
+
         df["trade_side"] = trade_side
         df["arrival_mid"] = mids
         df["execution_price"] = np.where(
@@ -226,7 +229,10 @@ def generate_synthetic_ticks(symbols, num_ticks, seed, base_date, anchor_prices)
         df["mid"] = (df["bid"] + df["ask"]) / 2
         df["spread"] = df["ask"] - df["bid"]
         df["liquidity_score"] = (df["bid_size"] + df["ask_size"]) / df["spread"].replace(0, np.nan)
-        df["order_imbalance"] = (df["bid_size"] - df["ask_size"]) / (df["bid_size"] + df["ask_size"])
+        df["order_imbalance"] = (df["bid_size"] - df["ask_size"]) / (
+            df["bid_size"] + df["ask_size"]
+        )
+
         all_frames.append(df)
 
     ticks = pd.concat(all_frames, ignore_index=True).sort_values(["symbol", "timestamp"])
@@ -316,7 +322,9 @@ intraday, historical = build_storage_layers(ticks)
 st.markdown("### 💱 Live Market Anchors")
 if use_live_anchors:
     if anchor_prices:
-        anchor_df = pd.DataFrame.from_dict(anchor_prices, orient="index", columns=["Live Anchor Price"])
+        anchor_df = pd.DataFrame.from_dict(
+            anchor_prices, orient="index", columns=["Live Anchor Price"]
+        )
         anchor_df.index.name = "Symbol"
         st.dataframe(anchor_df.round(5), use_container_width=True)
         st.markdown(
@@ -328,9 +336,13 @@ This makes the simulation feel more realistic while still keeping the project li
             """
         )
     else:
-        st.warning("Live anchors could not be loaded, so the app is using default static starting prices.")
+        st.warning(
+            "Live anchors could not be loaded, so the app is using default static starting prices."
+        )
 else:
-    st.info("Live market anchors are turned off. The simulation is using default static starting prices.")
+    st.info(
+        "Live market anchors are turned off. The simulation is using default static starting prices."
+    )
 
 st.markdown("### 🗃️ Data Overview")
 st.markdown(
@@ -346,6 +358,7 @@ The overall design now mirrors a more realistic trading workflow:
 - **liquidity and order behavior analysis** through spread, depth, and imbalance metrics
     """
 )
+
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Ticks", f"{len(intraday):,}")
 col2.metric("Symbols", f"{intraday['symbol'].nunique()}")
@@ -394,6 +407,8 @@ Instead of storing every tick, it aggregates each symbol into daily summary metr
 - closing price
 - total volume
 - average spread
+- average liquidity score
+- average order imbalance
 - number of ticks
 
 This helps show the difference between **full-resolution intraday data** and **historical summary data**.
@@ -412,6 +427,7 @@ Choose a single symbol to explore in more detail.
 Once selected, the app calculates a focused set of analytics for that instrument. This is similar to how a trader, quant, or market-data analyst would drill into one product at a time.
     """
 )
+
 selected_symbol = st.selectbox("Choose symbol", sorted(intraday["symbol"].unique()))
 selected = intraday[intraday["symbol"] == selected_symbol].copy().sort_values("timestamp")
 selected["return_bps"] = selected["trade_price"].pct_change() * 10000
@@ -537,7 +553,6 @@ st.pyplot(fig_imb)
 # -------------------------------
 # POST-TRADE ANALYTICS / TCA
 # -------------------------------
-
 st.markdown("### 🧾 Post-Trade Analytics / TCA")
 st.markdown(
     """
@@ -579,6 +594,12 @@ st.dataframe(
     ].head(20),
     use_container_width=True,
 )
+
+# -------------------------------
+# VOLUME BURSTS
+# -------------------------------
+st.markdown("### 🚨 Volume Burst Detection")
+st.markdown(
     """
 This section looks for **unusually large bursts of trading activity**.
 
@@ -588,6 +609,7 @@ The app compares recent trading volume with the broader session average:
 
 A burst may suggest elevated activity, news reaction, execution pressure, or a temporary change in liquidity.
     """
+)
 
 burst_window = st.slider("Burst rolling window", 10, 100, 25)
 burst_threshold = st.slider("Burst threshold", 1.1, 5.0, 2.0, step=0.1)
@@ -633,6 +655,7 @@ It lets the user inspect different slices of the selected symbol without writing
 - **Summary stats** for a compact overview
     """
 )
+
 query_type = st.selectbox(
     "Choose analysis",
     [
@@ -652,11 +675,23 @@ elif query_type == "Widest spreads":
 else:
     result = pd.DataFrame(
         {
-            "metric": ["rows", "vwap", "avg_spread", "total_volume", "max_trade"],
+            "metric": [
+                "rows",
+                "vwap",
+                "avg_spread",
+                "avg_liquidity_score",
+                "avg_order_imbalance",
+                "avg_slippage_bps",
+                "total_volume",
+                "max_trade",
+            ],
             "value": [
                 len(selected),
                 calc_vwap(selected),
                 selected["spread"].mean(),
+                selected["liquidity_score"].mean(),
+                selected["order_imbalance"].mean(),
+                tca_summary["avg_slippage_bps"],
                 selected["trade_size"].sum(),
                 selected["trade_size"].max(),
             ],
@@ -676,18 +711,26 @@ This final section explains the purpose of the platform in plain English.
 It is intended to show not only the outputs, but also **why they matter in a trading or market-data context**.
     """
 )
+
 st.write(
     f"""
 This mini-platform simulates a basic trading-data environment for **{selected_symbol}**.
 
 - Tick data is generated and stored in an **intraday layer**
 - Daily aggregates are stored in a **historical layer**
-- Core analytics include **spread analysis**, **VWAP tracking**, **returns**, and **volume burst detection**
+- Core analytics include **spread analysis**, **VWAP tracking**, **returns**, **liquidity analysis**, and **volume burst detection**
+- Post-trade analytics are included through a simple **transaction cost analysis (TCA)** framework
 
-This is a solid first version for GitHub and interviews, and can later be extended into:
-- transaction cost analysis,
+This makes the project closer to a real kdb+/q-style use case because it mirrors:
+- ingesting real-time and historical market data,
+- building a tick architecture,
+- doing post-trade analytics,
+- and analyzing price, spread, liquidity, and order behavior.
+
+This is a strong version for GitHub and interviews, and can later be extended into:
 - order-book reconstruction,
 - live feed ingestion,
+- richer execution benchmarking,
 - or a proper kdb+/q backend.
 """
 )
